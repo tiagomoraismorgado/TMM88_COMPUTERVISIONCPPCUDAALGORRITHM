@@ -1,0 +1,605 @@
+# =============================================================================
+#  CMakeLists.txt — cuda_mad_exploits
+#  GPU-accelerated MAD/Log-Gabor perceptual image quality pipeline
+#  (research / optimization playground — March 2026 style)
+#  =============================================================================
+#  ╔═══════════════════════════════════════════════════════════════════════════╗
+#  ║  EXTREME CUDA OPTIMIZATION TESTBED FOR PERCEPTUAL IMAGE QUALITY          ║
+#  ║  MAD (Most Apparent Distortion) + Log-Gabor Filter Banks                  ║
+#  ║  Industrial-grade build system with multi-target, multi-config support    ║
+#  ╚═══════════════════════════════════════════════════════════════════════════╝
+#  =============================================================================
+#  Honoring the scientific and industrial progress of Japan and South Korea
+#  — precision, innovation, and relentless optimization since 2026 —
+#  =============================================================================
+
+cmake_minimum_required(VERSION 3.24...3.30 FATAL_ERROR)
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Project identity with extended metadata
+#  ────────────────────────────────────────────────────────────────────────────────
+project(cuda_mad_exploits
+    VERSION 0.1.0
+    DESCRIPTION "Extreme CUDA optimization testbed for perceptual image quality (MAD + Log-Gabor)"
+    HOMEPAGE_URL "https://github.com/yourorg/cuda_mad_exploits"
+    LANGUAGES CXX CUDA
+)
+
+# =============================================================================
+#  ██████╗ ██████╗  ██████╗      ██╗███████╗ ██████╗████████╗
+#  ██╔══██╗██╔══██╗██╔═══██╗     ██║██╔════╝██╔════╝╚══██╔══╝
+#  ██████╔╝██████╔╝██║   ██║     ██║█████╗  ██║        ██║   
+#  ██╔═══╝ ██╔══██╗██║   ██║██   ██║██╔══╝  ██║        ██║   
+#  ██║     ██║  ██║╚██████╔╝╚█████╔╝███████╗╚██████╗   ██║   
+#  ╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚════╝ ╚══════╝ ╚═════╝   ╚═╝   
+# =============================================================================
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Project-wide configuration management
+#  ────────────────────────────────────────────────────────────────────────────────
+
+# C++ standard configuration
+set(CMAKE_CXX_STANDARD          17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS        OFF)
+
+# CUDA standard configuration
+set(CMAKE_CUDA_STANDARD          17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+# set(CMAKE_CUDA_EXTENSIONS      OFF)   # usually left ON for __device__ / __global__ etc.
+
+# Prefer modern separable compilation when device code calls other device code
+set(CMAKE_CUDA_SEPARABLE_COMPILATION ON CACHE BOOL "Enable separable compilation for device-to-device calls" FORCE)
+
+# Useful for Nsight Compute / profiling - keep line info even in Release
+set(CMAKE_CUDA_LINE_INFO         ON  CACHE BOOL "Generate line info for profiling (Nsight Compute, Visual Profiler)" FORCE)
+
+# Keep intermediate files for analysis
+set(CMAKE_CUDA_KEEP_FILES        OFF CACHE BOOL "Keep intermediate CUDA files for debugging" FORCE)
+
+# Default build type with comprehensive options
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type: Debug, Release, RelWithDebInfo, MinSizeRel, Profile" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel Profile)
+endif()
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Feature toggles and configuration options (extended)
+#  ────────────────────────────────────────────────────────────────────────────────
+
+# Core pipeline options
+option(ENABLE_NVTX                "Enable NVTX profiling markers for NVIDIA NSight Systems" ON)
+option(ENABLE_VERIFY              "Build verification / reference comparison code (CPU validation)" ON)
+option(ENABLE_VERIFY_EXTENDED     "Extended verification with statistical analysis and regression tests" OFF)
+option(USE_PINNED_MEMORY          "Use pinned host memory by default for faster transfers" ON)
+option(USE_UNIFIED_MEMORY         "Use CUDA unified memory for simpler programming (experimental)" OFF)
+option(USE_MANAGED_MEMORY         "Alias for USE_UNIFIED_MEMORY (backward compatibility)" OFF)
+
+# Performance tuning
+option(ENABLE_FAST_MATH           "Enable --use-fast-math for maximum performance (may reduce precision)" ON)
+option(ENABLE_FTZ                  "Flush denormals to zero for performance" ON)
+option(ENABLE_PTXAS_OPTIMIZATIONS  "Enable PTXAS optimizations" ON)
+option(ENABLE_WARP_AGGREGATION     "Enable warp-level aggregation kernels" ON)
+option(ENABLE_TENSOR_CORES         "Use Tensor Cores where applicable (requires compute 70+)" OFF)
+option(ENABLE_CUDA_GRAPHS          "Use CUDA Graphs for kernel launch overhead reduction" ON)
+option(ENABLE_MULTI_STREAM         "Enable multi-stream concurrency" ON)
+option(ENABLE_DYNAMIC_PARALLELISM  "Enable CUDA dynamic parallelism for adaptive algorithms" OFF)
+
+# Memory optimization
+option(ENABLE_SHMEM_USAGE          "Use shared memory aggressively in kernels" ON)
+option(ENABLE_LDG_CACHE            "Use read-only cache for global memory loads" ON)
+option(ENABLE_COMPRESSED_MEMORY    "Use compressed memory access where supported" OFF)
+
+# Debug and analysis
+option(ENABLE_CUDA_DEBUG_INFO      "Generate full debug info for device code" OFF)
+option(ENABLE_CUDA_LINE_INFO       "Generate line info (enabled by default for profiling)" ON)
+option(ENABLE_CUDA_ANALYSIS        "Enable additional analysis tool support" OFF)
+option(ENABLE_COMPUTE_SANITIZER    "Build with compute sanitizer support (memory checks)" OFF)
+option(ENABLE_NSIGHT_COMPUTE       "Optimize for Nsight Compute analysis" ON)
+option(ENABLE_CUPTI                 "Enable CUPTI-based profiling hooks" OFF)
+
+# Numerical precision control
+option(USE_FP32_PRECISION          "Use single precision for main pipeline" ON)
+option(USE_FP16_PRECISION          "Use half precision for intermediate calculations" OFF)
+option(USE_MIXED_PRECISION         "Use mixed precision strategies" OFF)
+option(ENABLE_IEEE_STRICT          "Strict IEEE compliance (disables fast math)" OFF)
+
+# Log-Gabor specific options
+option(LOG_GABOR_USE_FAST_ATAN     "Use fast approximate atan2 in Gabor generation" ON)
+option(LOG_GABOR_USE_FMA            "Use FMA instructions where beneficial" ON)
+option(LOG_GABOR_OPTIMIZE_FILTERS   "Precompute and cache filter banks" ON)
+
+# MAD metric options
+option(MAD_USE_APPROXIMATE_SLOPE    "Use approximate slope calculations" ON)
+option(MAD_USE_ADAPTIVE_SCALING     "Use adaptive scaling parameters" ON)
+option(MAD_USE_GAUSSIAN_PYRAMID     "Use Gaussian pyramid for multi-scale analysis" ON)
+
+# Output and logging
+option(ENABLE_VERBOSE_LOGGING       "Enable verbose runtime logging" OFF)
+option(ENABLE_PERFORMANCE_COUNTERS  "Track detailed performance counters" ON)
+option(ENABLE_OUTPUT_IMAGES         "Generate output image files" ON)
+option(ENABLE_METRIC_DUMP           "Dump metric values to CSV" OFF)
+
+# Cross-platform support
+option(ENABLE_LINUX_PERF            "Enable Linux perf event integration" ON)
+option(ENABLE_WINDOWS_ETW            "Enable Windows ETW tracing" OFF)
+option(ENABLE_MACOS_INSTRUMENTS      "Enable macOS Instruments support" OFF)
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Architecture configuration — extended for 2025–2026 hardware landscape
+#  ────────────────────────────────────────────────────────────────────────────────
+
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    # Comprehensive 2026 architecture support
+    # From Tegra to Enterprise datacenter GPUs
+    set(CMAKE_CUDA_ARCHITECTURES 
+        70  # Volta (V100, T4) - foundational
+        72  # Volta Tegra (Xavier)
+        75  # Turing (RTX 20xx, T4 refresh)
+        80  # Ampere (A100, RTX 30xx)
+        86  # Ampere consumer (RTX 30xx)
+        87  # Ampere mobile/laptop
+        89  # Ada Lovelace (RTX 40xx) - current gen
+        90  # Hopper (H100, H200) - datacenter
+        90a # Hopper with Tensor Core MMA
+        100 # Blackwell (B100, B200, RTX 50xx) - future gen
+        CACHE STRING "CUDA architectures to compile for"
+    )
+endif()
+
+# Architecture-specific feature detection
+set(CUDA_ARCH_FEATURES "")
+foreach(ARCH IN LISTS CMAKE_CUDA_ARCHITECTURES)
+    string(REGEX REPLACE "[a-z]" "" ARCH_NUM ${ARCH})
+    if(ARCH_NUM GREATER_EQUAL 70)
+        list(APPEND CUDA_ARCH_FEATURES "CUDA_ARCH_VOLTA_PLUS")
+    endif()
+    if(ARCH_NUM GREATER_EQUAL 75)
+        list(APPEND CUDA_ARCH_FEATURES "CUDA_ARCH_TURING_PLUS")
+    endif()
+    if(ARCH_NUM GREATER_EQUAL 80)
+        list(APPEND CUDA_ARCH_FEATURES "CUDA_ARCH_AMPERE_PLUS")
+    endif()
+    if(ARCH_NUM GREATER_EQUAL 89)
+        list(APPEND CUDA_ARCH_FEATURES "CUDA_ARCH_ADA_PLUS")
+    endif()
+    if(ARCH_NUM GREATER_EQUAL 90)
+        list(APPEND CUDA_ARCH_FEATURES "CUDA_ARCH_HOPPER_PLUS")
+    endif()
+    if(ARCH_NUM GREATER_EQUAL 100)
+        list(APPEND CUDA_ARCH_FEATURES "CUDA_ARCH_BLACKWELL_PLUS")
+    endif()
+endforeach()
+list(REMOVE_DUPLICATES CUDA_ARCH_FEATURES)
+
+# =============================================================================
+#  ██████╗ ███████╗██████╗ ███████╗███╗   ██╗██████╗ ███████╗███╗   ██╗ ██████╗██╗███████╗███████╗
+#  ██╔══██╗██╔════╝██╔══██╗██╔════╝████╗  ██║██╔══██╗██╔════╝████╗  ██║██╔════╝██║██╔════╝██╔════╝
+#  ██║  ██║█████╗  ██████╔╝█████╗  ██╔██╗ ██║██║  ██║█████╗  ██╔██╗ ██║██║     ██║█████╗  ███████╗
+#  ██║  ██║██╔══╝  ██╔═══╝ ██╔══╝  ██║╚██╗██║██║  ██║██╔══╝  ██║╚██╗██║██║     ██║██╔══╝  ╚════██║
+#  ██████╔╝███████╗██║     ███████╗██║ ╚████║██████╔╝███████╗██║ ╚████║╚██████╗██║███████╗███████║
+#  ╚═════╝ ╚══════╝╚═╝     ╚══════╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝╚═╝╚══════╝╚══════╝
+# =============================================================================
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Core dependencies - OpenCV with component validation
+#  ────────────────────────────────────────────────────────────────────────────────
+
+find_package(OpenCV 4.8 REQUIRED
+    COMPONENTS core imgproc highgui imgcodecs videoio calib3d features2d flann
+    QUIET
+)
+
+# Validate OpenCV components
+if(OpenCV_FOUND)
+    message(STATUS "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    message(STATUS "OpenCV version:                ${OpenCV_VERSION}")
+    message(STATUS "OpenCV include dirs:            ${OpenCV_INCLUDE_DIRS}")
+    message(STATUS "OpenCV libraries:               ${OpenCV_LIBS}")
+    message(STATUS "OpenCV modules:                 ${OpenCV_MODULES}")
+    
+    # Check for CUDA support in OpenCV (optional but beneficial)
+    if(TARGET opencv_cudev)
+        message(STATUS "OpenCV CUDA modules:           FOUND (cudev)")
+        set(HAVE_OPENCV_CUDA ON)
+    else()
+        message(STATUS "OpenCV CUDA modules:           NOT FOUND (optional)")
+    endif()
+else()
+    message(FATAL_ERROR "OpenCV 4.8+ is required for image I/O and processing")
+endif()
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  CUDA Toolkit with extended component detection
+#  ────────────────────────────────────────────────────────────────────────────────
+
+# CUDA is enabled via LANGUAGES CUDA — no find_package(CUDA) needed
+# But we need the toolkit components
+find_package(CUDAToolkit REQUIRED)
+
+# Comprehensive CUDA component detection
+set(CUDA_REQUIRED_COMPONENTS cufft)
+set(CUDA_OPTIONAL_COMPONENTS 
+    nvtx3 
+    nvToolsExt 
+    cudart 
+    cuda_driver 
+    nvml 
+    cupti 
+    cublas 
+    cudnn
+    curand
+    cusolver
+    cusparse
+    nppc nppif nppisu nppicom nppidei nppist nppitc
+)
+
+foreach(COMP ${CUDA_OPTIONAL_COMPONENTS})
+    find_package(CUDAToolkit COMPONENTS ${COMP} QUIET)
+    if(CUDAToolkit_${COMP}_FOUND)
+        set(HAVE_CUDA_${COMP} ON)
+        message(STATUS "CUDA component ${COMP}:          FOUND")
+    else()
+        message(STATUS "CUDA component ${COMP}:          NOT FOUND (optional)")
+    endif()
+endforeach()
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  NVTX handling (modern vs legacy) with fallback
+#  ────────────────────────────────────────────────────────────────────────────────
+
+if(ENABLE_NVTX)
+    # Modern NVTX v3 (preferred since CUDA 10+)
+    find_package(CUDAToolkit COMPONENTS nvtx3 QUIET)
+    if(CUDAToolkit_nvtx3_FOUND)
+        set(NVTX_MODE "MODERN")
+        message(STATUS "NVTX support:                  MODERN (nvtx3)")
+    else()
+        message(WARNING "NVTX v3 not found — falling back to legacy nvToolsExt")
+        find_package(CUDAToolkit COMPONENTS nvToolsExt QUIET)
+        if(CUDAToolkit_nvToolsExt_FOUND)
+            set(NVTX_MODE "LEGACY")
+            message(STATUS "NVTX support:                  LEGACY (nvToolsExt)")
+        else()
+            set(ENABLE_NVTX OFF)
+            message(STATUS "NVTX support:                  DISABLED (no libraries found)")
+        endif()
+    endif()
+endif()
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Optional scientific computing libraries
+#  ────────────────────────────────────────────────────────────────────────────────
+
+find_package(FFTW3 QUIET)
+if(FFTW3_FOUND)
+    message(STATUS "FFTW3 found:                   ${FFTW3_VERSION}")
+    set(HAVE_FFTW3 ON)
+endif()
+
+find_package(Eigen3 QUIET)
+if(Eigen3_FOUND)
+    message(STATUS "Eigen3 found:                  ${Eigen3_VERSION}")
+    set(HAVE_EIGEN3 ON)
+endif()
+
+find_package(TBB QUIET)
+if(TBB_FOUND)
+    message(STATUS "Intel TBB found:                ${TBB_VERSION}")
+    set(HAVE_TBB ON)
+endif()
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Threading and concurrency libraries
+#  ────────────────────────────────────────────────────────────────────────────────
+
+find_package(Threads REQUIRED)
+find_package(OpenMP QUIET)
+if(OpenMP_FOUND)
+    message(STATUS "OpenMP found:                   ${OpenMP_VERSION}")
+    set(HAVE_OPENMP ON)
+endif()
+
+# =============================================================================
+#  ███████╗ ██████╗ ██╗   ██╗██████╗  ██████╗███████╗
+#  ██╔════╝██╔═══██╗██║   ██║██╔══██╗██╔════╝██╔════╝
+#  ███████╗██║   ██║██║   ██║██████╔╝██║     ███████╗
+#  ╚════██║██║   ██║██║   ██║██╔══██╗██║     ╚════██║
+#  ███████║╚██████╔╝╚██████╔╝██║  ██║╚██████╗███████║
+#  ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝ ╚═════╝╚══════╝
+# =============================================================================
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Source file organization (comprehensive)
+#  ────────────────────────────────────────────────────────────────────────────────
+
+# Root include directory
+set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(KERNEL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/kernels)
+set(UTIL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/utils)
+set(REF_DIR ${CMAKE_CURRENT_SOURCE_DIR}/reference)
+
+# Header files (modular organization)
+set(HEADERS
+    ${INCLUDE_DIR}/cuda_mad_exploits/config.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/types.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/macros.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/error_handling.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/cuda_utils.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/memory.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/pipeline.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/kernels.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/log_gabor.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/mad_metric.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/image_io.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/profiling.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/verification.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/fft_utils.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/math_utils.h
+    ${INCLUDE_DIR}/cuda_mad_exploits/thread_pool.h
+)
+
+# Main source files
+set(SOURCES
+    ${SRC_DIR}/main.cu
+    ${SRC_DIR}/pipeline_main.cu
+    ${SRC_DIR}/gpu_pipeline.cu
+    ${SRC_DIR}/gpu_pipeline_advanced.cu
+    ${SRC_DIR}/utils.cu
+    ${SRC_DIR}/cuda_utils.cu
+    ${SRC_DIR}/memory_management.cu
+    ${SRC_DIR}/error_handling.cpp
+    ${SRC_DIR}/profiling.cpp
+    ${SRC_DIR}/image_io.cpp
+    ${SRC_DIR}/thread_pool.cpp
+    ${SRC_DIR}/cpu_reference.cpp
+    ${SRC_DIR}/verification.cpp
+)
+
+# Kernel source files (grouped by functionality)
+file(GLOB KERNEL_SOURCES
+    "${KERNEL_DIR}/*.cu"
+)
+
+# Utility source files (CPU-side helpers)
+file(GLOB UTIL_SOURCES
+    "${UTIL_DIR}/*.cpp"
+)
+
+# Reference implementation files (CPU validation)
+file(GLOB REF_SOURCES
+    "${REF_DIR}/*.cpp"
+)
+
+# Combine all sources
+set(ALL_SOURCES
+    ${HEADERS}
+    ${SOURCES}
+    ${KERNEL_SOURCES}
+    ${UTIL_SOURCES}
+    ${REF_SOURCES}
+)
+
+# Generate source groups for IDE organization
+source_group("Include" FILES ${HEADERS})
+source_group("Source" FILES ${SOURCES})
+source_group("Kernels" FILES ${KERNEL_SOURCES})
+source_group("Utils" FILES ${UTIL_SOURCES})
+source_group("Reference" FILES ${REF_SOURCES})
+
+# =============================================================================
+#  ████████╗ █████╗ ██████╗  ██████╗ ███████╗████████╗███████╗
+#  ╚══██╔══╝██╔══██╗██╔══██╗██╔════╝ ██╔════╝╚══██╔══╝██╔════╝
+#     ██║   ███████║██████╔╝██║  ███╗█████╗     ██║   ███████╗
+#     ██║   ██╔══██║██╔══██╗██║   ██║██╔══╝     ██║   ╚════██║
+#     ██║   ██║  ██║██║  ██║╚██████╔╝███████╗   ██║   ███████║
+#     ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝   ╚══════╝
+# =============================================================================
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Primary executable targets
+#  ────────────────────────────────────────────────────────────────────────────────
+
+# Main research executable (full pipeline)
+add_executable(cuda_mad_exploits ${ALL_SOURCES})
+
+# Lightweight test executable (unit tests)
+add_executable(cuda_mad_tests
+    ${INCLUDE_DIR}/cuda_mad_exploits/test_framework.h
+    ${SRC_DIR}/tests/test_main.cu
+    ${SRC_DIR}/tests/test_log_gabor.cu
+    ${SRC_DIR}/tests/test_mad_metric.cu
+    ${SRC_DIR}/tests/test_memory.cu
+)
+
+# Benchmark executable (performance measurement)
+add_executable(cuda_mad_benchmarks
+    ${INCLUDE_DIR}/cuda_mad_exploits/benchmark.h
+    ${SRC_DIR}/benchmarks/bench_main.cu
+    ${SRC_DIR}/benchmarks/bench_pipeline.cu
+    ${SRC_DIR}/benchmarks/bench_kernels.cu
+)
+
+# Profiling executable (instrumented for Nsight)
+add_executable(cuda_mad_profile
+    ${ALL_SOURCES}
+    ${SRC_DIR}/profiling/profiling_main.cu
+)
+
+# Validation executable (reference comparison)
+if(ENABLE_VERIFY)
+    add_executable(cuda_mad_validate
+        ${ALL_SOURCES}
+        ${SRC_DIR}/validation/validate_main.cu
+        ${SRC_DIR}/validation/validate_pipeline.cu
+    )
+endif()
+
+# Interactive explorer (GUI/visualization)
+add_executable(cuda_mad_explorer
+    ${ALL_SOURCES}
+    ${SRC_DIR}/explorer/explorer_main.cu
+    ${SRC_DIR}/explorer/visualization.cpp
+)
+
+# =============================================================================
+#  ██╗███╗   ██╗ ██████╗██╗     ██╗   ██╗██████╗ ███████╗██████╗ 
+#  ██║████╗  ██║██╔════╝██║     ██║   ██║██╔══██╗██╔════╝██╔══██╗
+#  ██║██╔██╗ ██║██║     ██║     ██║   ██║██████╔╝█████╗  ██████╔╝
+#  ██║██║╚██╗██║██║     ██║     ██║   ██║██╔══██╗██╔══╝  ██╔══██╗
+#  ██║██║ ╚████║╚██████╗███████╗╚██████╔╝██║  ██║███████╗██║  ██║
+#  ╚═╝╚═╝  ╚═══╝ ╚═════╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
+# =============================================================================
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Include directories (comprehensive)
+#  ────────────────────────────────────────────────────────────────────────────────
+target_include_directories(cuda_mad_exploits
+    PRIVATE
+        ${INCLUDE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${OpenCV_INCLUDE_DIRS}
+)
+
+# Apply to all targets
+foreach(TARGET IN ITEMS cuda_mad_exploits cuda_mad_tests cuda_mad_benchmarks cuda_mad_profile cuda_mad_explorer)
+    if(TARGET ${TARGET})
+        target_include_directories(${TARGET}
+            PRIVATE
+                ${INCLUDE_DIR}
+                ${CMAKE_CURRENT_SOURCE_DIR}
+                ${OpenCV_INCLUDE_DIRS}
+        )
+    endif()
+endforeach()
+
+if(TARGET cuda_mad_validate)
+    target_include_directories(cuda_mad_validate
+        PRIVATE
+            ${INCLUDE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${OpenCV_INCLUDE_DIRS}
+    )
+endif()
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Link libraries (comprehensive)
+#  ────────────────────────────────────────────────────────────────────────────────
+target_link_libraries(cuda_mad_exploits
+    PRIVATE
+        ${OpenCV_LIBS}
+        CUDA::cufft
+        Threads::Threads
+)
+
+# Add optional CUDA components
+if(HAVE_CUDA_cublas)
+    target_link_libraries(cuda_mad_exploits PRIVATE CUDA::cublas)
+    target_compile_definitions(cuda_mad_exploits PRIVATE HAVE_CUBLAS)
+endif()
+
+if(HAVE_CUDA_cudnn)
+    target_link_libraries(cuda_mad_exploits PRIVATE CUDA::cudnn)
+    target_compile_definitions(cuda_mad_exploits PRIVATE HAVE_CUDNN)
+endif()
+
+if(HAVE_CUDA_curand)
+    target_link_libraries(cuda_mad_exploits PRIVATE CUDA::curand)
+    target_compile_definitions(cuda_mad_exploits PRIVATE HAVE_CURAND)
+endif()
+
+if(HAVE_CUDA_cusolver)
+    target_link_libraries(cuda_mad_exploits PRIVATE CUDA::cusolver)
+    target_compile_definitions(cuda_mad_exploits PRIVATE HAVE_CUSOLVER)
+endif()
+
+if(HAVE_CUDA_cusparse)
+    target_link_libraries(cuda_mad_exploits PRIVATE CUDA::cusparse)
+    target_compile_definitions(cuda_mad_exploits PRIVATE HAVE_CUSPARSE)
+endif()
+
+# NPP libraries (NVIDIA Performance Primitives)
+if(HAVE_CUDA_nppc AND HAVE_CUDA_nppif AND HAVE_CUDA_nppisu)
+    target_link_libraries(cuda_mad_exploits 
+        PRIVATE 
+            CUDA::nppc
+            CUDA::nppif
+            CUDA::nppisu
+            CUDA::nppicom
+            CUDA::nppidei
+            CUDA::nppist
+            CUDA::nppitc
+    )
+    target_compile_definitions(cuda_mad_exploits PRIVATE HAVE_NPP)
+endif()
+
+# NVTX support
+if(ENABLE_NVTX)
+    if(CUDAToolkit_nvtx3_FOUND)
+        target_link_libraries(cuda_mad_exploits PRIVATE CUDA::nvtx3)
+        target_compile_definitions(cuda_mad_exploits PRIVATE USE_NVTX3)
+    elseif(CUDAToolkit_nvToolsExt_FOUND)
+        target_link_libraries(cuda_mad_exploits PRIVATE CUDA::nvToolsExt)
+        target_compile_definitions(cuda_mad_exploits PRIVATE USE_LEGACY_NVTX)
+    endif()
+endif()
+
+# Optional scientific libraries
+if(HAVE_FFTW3)
+    target_link_libraries(cuda_mad_exploits PRIVATE FFTW3::fftw3)
+    target_compile_definitions(cuda_mad_exploits PRIVATE HAVE_FFTW)
+endif()
+
+if(HAVE_EIGEN3)
+    target_link_libraries(cuda_mad_exploits PRIVATE Eigen3::Eigen)
+    target_compile_definitions(cuda_mad_exploits PRIVATE HAVE_EIGEN)
+endif()
+
+if(HAVE_TBB)
+    target_link_libraries(cuda_mad_exploits PRIVATE TBB::tbb)
+    target_compile_definitions(cuda_mad_exploits PRIVATE HAVE_TBB)
+endif()
+
+if(HAVE_OPENMP)
+    target_link_libraries(cuda_mad_exploits PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+# Apply similar linking to all targets
+foreach(TARGET IN ITEMS cuda_mad_tests cuda_mad_benchmarks cuda_mad_profile cuda_mad_explorer cuda_mad_validate)
+    if(TARGET ${TARGET})
+        target_link_libraries(${TARGET}
+            PRIVATE
+                ${OpenCV_LIBS}
+                CUDA::cufft
+                Threads::Threads
+        )
+        
+        # Copy over all optional libraries
+        get_target_property(EXPLOITS_LIBS cuda_mad_exploits LINK_LIBRARIES)
+        if(EXPLOITS_LIBS)
+            target_link_libraries(${TARGET} PRIVATE ${EXPLOITS_LIBS})
+        endif()
+    endif()
+endforeach()
+
+# =============================================================================
+#  ██████╗ ██████╗ ███╗   ███╗██████╗ ██╗██╗     ███████╗██████╗ 
+#  ██╔════╝██╔═══██╗████╗ ████║██╔══██╗██║██║     ██╔════╝██╔══██╗
+#  ██║     ██║   ██║██╔████╔██║██████╔╝██║██║     █████╗  ██████╔╝
+#  ██║     ██║   ██║██║╚██╔╝██║██╔═══╝ ██║██║     ██╔══╝  ██╔══██╗
+#  ╚██████╗╚██████╔╝██║ ╚═╝ ██║██║     ██║███████╗███████╗██║  ██║
+#   ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝
+# =============================================================================
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Compiler options (host and device)
+#  ────────────────────────────────────────────────────────────────────────────────
+
+# Common flags for all targets
+function(set_common_compile_options TARGET_NAME)
+    target_compile_options(${TARGET_NAME}
+        PRIVATE
+            $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-parameter -Wno-unused-function>
+            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler
