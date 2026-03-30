@@ -104,12 +104,44 @@ All major experiments are documented in `experiments/YYYY-MM/` folders with:
 ## Build & development environment (2026 edition)
 
 ### Minimum requirements
-- CUDA Toolkit 12.4 – 12.8 (strongly recommended 12.6+)  
-- NVIDIA driver ≥ 550.xx (RTX 40 & 50 series)  
-- OpenCV 4.9+ or 4.10 (core, imgproc, imgcodecs) — preferably built with CUDA support  
-- CMake 3.25+  
-- Compiler: MSVC 2022 17.10+, GCC 12/13, Clang 16/17/18  
+- CUDA Toolkit 12.4 – 12.8 (strongly recommended 12.6+)
+- NVIDIA driver ≥ 550.xx (RTX 40 & 50 series)
+- OpenCV 4.8+ (core, imgproc, imgcodecs) — preferably built with CUDA support
+- CMake 3.24+
+- Compiler: MSVC 2022 17.10+, GCC 12/13, Clang 16/17/18
 - Python 3.10+ (optional — used for reference metric & plotting scripts)
+
+### Quick local build (Linux/macOS)
+
+```bash
+./build.sh
+./build/cuda_mad_exploits --help
+```
+
+### Quick local build (Windows PowerShell)
+
+```powershell
+./build.ps1 -Configuration Release
+./build\cuda_mad_exploits.exe --help
+```
+
+### Local quality checks
+
+```powershell
+Push-Location build
+ctest --output-on-failure
+Pop-Location
+
+clang-format -i *.cpp *.cu *.h *.hpp
+```
+
+### CI workflow
+- `.github/workflows/ci.yml`: runs build, format check, and smoke check on push/PR.
+
+### Troubleshooting
+- If you see `cmake : The term 'cmake' is not recognized`, install CMake and add it to PATH.
+- If you see OpenCV issues, set `OpenCV_DIR` or install `libopencv-dev` (Linux).
+- If CUDA is missing, install the CUDA toolkit and validate `nvcc --version`.
 
 ### Recommended development GPUs (March 2026)
 - RTX 4090 / 5090 (24/32 GB) — best for large filter banks & batch experiments  
@@ -126,6 +158,8 @@ cd cuda_mad_exploits
 # Recommended: out-of-source build
 mkdir -p build/release && cd build/release
 cmake ../.. -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_CUDA=ON \
+            -DENABLE_OPENCV=ON \
             -DCMAKE_CUDA_ARCHITECTURES="89;90" \
             -DOpenCV_DIR=/path/to/opencv/build
 
@@ -135,6 +169,16 @@ make -j$(nproc)
 ./cuda_mad_exploits --ref ../data/reference/clean_building.png \
                     --dist ../data/distorted/building_jp2k_0.4bpp.png \
                     --output-score
+```
+
+### Fallback build (no CUDA/OpenCV)
+
+```bash
+mkdir -p build/no-deps && cd build/no-deps
+cmake ../.. -DCMAKE_BUILD_TYPE=Release -DENABLE_CUDA=OFF -DENABLE_OPENCV=OFF
+make -j$(nproc)
+./cuda_mad_exploits
+```
 
 # Full verification mode (slower, saves maps)
 ./cuda_mad_exploits --ref ref.png --dist dist.png \

@@ -1,6 +1,41 @@
+# CUDA / CMake build artifacts
 *.i
 *.ii
 *.gpu
 *.ptx
 *.cubin
 *.fatbin
+
+# CMake build folder
+/build/
+
+# Visual Studio
+*.vcxproj*
+*.sln
+*.sdf
+*.opensdf
+*.ipch
+*.user
+*.filters
+*.vcxproj.user
+*.vcxproj.filters
+*.log
+
+# CMake cache
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Editor backups
+*~
+*.swp
+*.swo
+*.tmp
+

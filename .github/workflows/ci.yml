@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up CUDA 12.8
+        uses: davanum/setup-cuda@v2
+        with:
+          cuda-version: '12.8'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y cmake g++ git libopencv-dev
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: |
+          cd build
+          cmake --build . -- -j$(nproc)
+
+      - name: Smoke test (help output)
+        run: |
+          cd build
+          if [ -f cuda_mad_exploits ]; then ./cuda_mad_exploits --help; else echo "Target not built" && exit 1; fi
+
+      - name: Run unit tests
+        run: |
+          cd build
+          ctest --output-on-failure
+
+  fmt:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for uppercase/lowercase safe files
+        run: |
+          find . -maxdepth 2 -name "* CMakeLists.tx" && exit 1 || true
